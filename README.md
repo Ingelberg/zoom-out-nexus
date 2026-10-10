@@ -1,5 +1,7 @@
 # Zoom Out Nexus
 
+> **This plugin is vibe coded.** Claude (an AI coding assistant) wrote it with my direction and in-game testing. It's been used and tweaked in-game, but not every line has been hand-reviewed.
+
 An addon for [Nexus Menu Map](https://github.com/Antipixel/nexus-map) by Antipixel
 ([issue #29](https://github.com/Antipixel/nexus-map/issues/29)).
 
