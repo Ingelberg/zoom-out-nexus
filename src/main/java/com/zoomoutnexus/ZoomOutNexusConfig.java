@@ -24,8 +24,8 @@ public interface ZoomOutNexusConfig extends Config
 	@ConfigItem(
 		keyName = "showGlobal",
 		name = "Boat / Respawn top-left",
-		description = "Show the Respawn Point, Boat and Last Boat teleports in the top-left of the overview."
-			+ " Skipped automatically when Nexus Menu Map already draws them there",
+		description = "Show the Respawn Point, Boat and Last Boat teleports in the top-left of the overview"
+			+ " (also hides Nexus Menu Map's own copies when off)",
 		position = 1
 	)
 	default boolean showGlobal()

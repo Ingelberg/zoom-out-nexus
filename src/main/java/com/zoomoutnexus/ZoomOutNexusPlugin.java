@@ -48,15 +48,17 @@ public class ZoomOutNexusPlugin extends Plugin
 	private static final int GROUP_NEXUS_PORTAL = 17;
 	private static final int ID_PORTAL_WINDOW = 0x110001;
 	private static final int ID_LOC_LABELS_PRIMARY = 0x11000C;
-	/** Clickable rows of the vanilla list; child N here is the row whose label is child N of the labels layer. */
-	private static final int ID_LIST_ROWS_PRIMARY = 0x11000D;
 	private static final int ID_SPRITES_PRIMARY = 0x11000F;
 	private static final int ID_LOC_LABELS_ALTERNATE = 0x110010;
-	private static final int ID_LIST_ROWS_ALTERNATE = 0x110011;
 	private static final int ID_SPRITES_ALTERNATE = 0x110012;
 
-	/** The vanilla list row's teleport/scry option. */
-	private static final int LIST_ROW_OP = 1;
+	/**
+	 * The vanilla list's key listeners (telenexus_teleport:extra_key_listeners / key_listeners). Child N belongs to
+	 * the teleport whose label is child N of the matching labels layer; pressing its hotkey runs clientscript 1437,
+	 * which does cc_find + cc_resume_pausebutton on that child.
+	 */
+	private static final int ID_KEY_LISTENERS_ALTERNATE = 0x110007;
+	private static final int ID_KEY_LISTENERS_PRIMARY = 0x110008;
 	private static final int VARBIT_NEXUS_MODE = 6671;
 
 	/* Nexus Menu Map's layout and sprites */
@@ -105,6 +107,8 @@ public class ZoomOutNexusPlugin extends Plugin
 	private Icon hoveredIcon;
 	private boolean pendingBuild;
 	private boolean shieldsHiddenByUs;
+	/** Nexus Menu Map's own Respawn/Boat/Last Boat icons, hidden because "Boat / Respawn top-left" is off. */
+	private final Set<Widget> nexusGlobalsHidden = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
 
 	private static final class Icon
 	{
@@ -167,6 +171,11 @@ public class ZoomOutNexusPlugin extends Plugin
 				hoverWidget.setHidden(true);
 			}
 			restoreShields();
+			Widget window = client.getWidget(ID_PORTAL_WINDOW);
+			if (window != null && isOverview(window.getDynamicChildren()))
+			{
+				nexusGlobalsHidden.forEach(w -> w.setHidden(false));
+			}
 			clear();
 		});
 	}
@@ -179,6 +188,7 @@ public class ZoomOutNexusPlugin extends Plugin
 		hoveredIcon = null;
 		pendingBuild = false;
 		shieldsHiddenByUs = false;
+		nexusGlobalsHidden.clear();
 	}
 
 	@Subscribe
@@ -263,6 +273,9 @@ public class ZoomOutNexusPlugin extends Plugin
 			w.setHasListener(true);
 			w.setOnMouseOverListener((JavaScriptCallback) ev -> setHovered(icon, true));
 			w.setOnMouseLeaveListener((JavaScriptCallback) ev -> setHovered(icon, false));
+			// The client only offers a created widget's ops when it has an op listener. This one never runs:
+			// onMenuEntryAdded turns the entry into the vanilla action, so the click never reaches the widget.
+			w.setOnOpListener((JavaScriptCallback) ev -> { });
 		}
 
 		hoverWidget = window.createChild(-1, WidgetType.GRAPHIC);
@@ -404,8 +417,8 @@ public class ZoomOutNexusPlugin extends Plugin
 	}
 
 	/**
-	 * Points the menu entry of one of our icons at the matching row of the (hidden) vanilla teleport list,
-	 * so choosing it is an ordinary click on that row and the game performs the teleport itself.
+	 * Turns the menu entry of one of our icons into the same resume-pause ("continue") on the teleport's vanilla
+	 * key listener that its hotkey sends, so choosing it is an ordinary click that the client sends itself.
 	 */
 	@Subscribe
 	public void onMenuEntryAdded(MenuEntryAdded e)
@@ -422,35 +435,56 @@ public class ZoomOutNexusPlugin extends Plugin
 			{
 				if (icon.available())
 				{
-					entry.setParam0(icon.label.getIndex())
-						.setParam1(icon.def.isAlt() ? ID_LIST_ROWS_ALTERNATE : ID_LIST_ROWS_PRIMARY)
-						.setIdentifier(LIST_ROW_OP);
+					entry.setType(MenuAction.WIDGET_CONTINUE)
+						.setParam0(icon.label.getIndex())
+						.setParam1(icon.def.isAlt() ? ID_KEY_LISTENERS_ALTERNATE : ID_KEY_LISTENERS_PRIMARY)
+						.setIdentifier(0);
 				}
 				return;
 			}
 		}
 	}
 
-	private void updateVisibility(Widget window)
+	/** Whether Nexus Menu Map's overview page is on screen: its region overview sprites only exist there. */
+	private boolean isOverview(Widget[] children)
 	{
-		Widget[] children = window.getDynamicChildren();
-		boolean overview = false;
 		for (Widget c : children)
 		{
 			if (!ownWidgets.contains(c) && !c.isSelfHidden()
 				&& c.getSpriteId() >= INDEX_SPRITE_MIN && c.getSpriteId() <= INDEX_SPRITE_MAX)
 			{
-				overview = true;
-				break;
+				return true;
 			}
 		}
+		return false;
+	}
+
+	private void updateVisibility(Widget window)
+	{
+		Widget[] children = window.getDynamicChildren();
+		boolean overview = isOverview(children);
 
 		for (Icon icon : icons)
 		{
 			boolean show = overview && (icon.available() || config.showUnavailable());
 			if (icon.def.isGlobal())
 			{
-				show &= config.showGlobal() && !nexusDrawsAt(children, icon.widget);
+				Widget nexusOwn = nexusWidgetAt(children, icon.widget);
+				if (nexusOwn != null)
+				{
+					// Nexus Menu Map draws this one itself: never double it up, but honour the setting
+					show = false;
+					if (overview && !config.showGlobal() && !nexusOwn.isSelfHidden())
+					{
+						nexusOwn.setHidden(true);
+						nexusGlobalsHidden.add(nexusOwn);
+					}
+					else if (overview && config.showGlobal() && nexusGlobalsHidden.remove(nexusOwn))
+					{
+						nexusOwn.setHidden(false);
+					}
+				}
+				show &= config.showGlobal();
 			}
 			else
 			{
@@ -480,19 +514,19 @@ public class ZoomOutNexusPlugin extends Plugin
 		}
 	}
 
-	/** Newer Nexus Menu Map versions already draw the global teleports top-left; don't double them up. */
-	private boolean nexusDrawsAt(Widget[] children, Widget ours)
+	/** Newer Nexus Menu Map versions draw the global teleports top-left themselves; finds that widget, if any. */
+	private Widget nexusWidgetAt(Widget[] children, Widget ours)
 	{
 		for (Widget c : children)
 		{
-			if (!ownWidgets.contains(c) && !c.isSelfHidden() && c.getType() == WidgetType.GRAPHIC
+			if (!ownWidgets.contains(c) && c.getType() == WidgetType.GRAPHIC
 				&& c.getOriginalX() == ours.getOriginalX() && c.getOriginalY() == ours.getOriginalY()
 				&& c.getOriginalWidth() == FULL_ICON_SIZE)
 			{
-				return true;
+				return c;
 			}
 		}
-		return false;
+		return null;
 	}
 
 	private void restoreShields()
@@ -510,15 +544,7 @@ public class ZoomOutNexusPlugin extends Plugin
 		}
 
 		// Shields only exist on the overview page, so if it's up they should be visible again
-		boolean overview = false;
-		for (Widget c : window.getDynamicChildren())
-		{
-			if (!ownWidgets.contains(c) && !c.isSelfHidden()
-				&& c.getSpriteId() >= INDEX_SPRITE_MIN && c.getSpriteId() <= INDEX_SPRITE_MAX)
-			{
-				overview = true;
-			}
-		}
+		boolean overview = isOverview(window.getDynamicChildren());
 		for (Widget c : window.getDynamicChildren())
 		{
 			if (isShield(c))

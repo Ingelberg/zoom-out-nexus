@@ -17,7 +17,7 @@ code. It adds its own icons to the same interface and shows them only while the 
 | Option | Default | |
 |---|---|---|
 | Teleports on overview | on | The main feature |
-| Boat / Respawn top-left | on | |
+| Boat / Respawn top-left | on | Turning it off also hides Nexus Menu Map's own copies |
 | Show unavailable | off | Grey icons for portals your nexus doesn't have |
 | Icon size | 26 | 10–50. Positions are spaced for 20, so neighbours touch a little at 26 |
 | Enlarge on hover | on | Draws a bigger copy of the hovered icon on top of its neighbours |
