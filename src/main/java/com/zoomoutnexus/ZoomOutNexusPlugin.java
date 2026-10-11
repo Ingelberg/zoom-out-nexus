@@ -15,7 +15,10 @@ import java.util.regex.Pattern;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.MenuAction;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.events.ClientTick;
+import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.widgets.JavaScriptCallback;
@@ -44,14 +47,16 @@ public class ZoomOutNexusPlugin extends Plugin
 	/* Nexus interface (group 17) */
 	private static final int GROUP_NEXUS_PORTAL = 17;
 	private static final int ID_PORTAL_WINDOW = 0x110001;
-	private static final int ID_KEYEVENTS_ALTERNATE = 0x110007;
-	private static final int ID_KEYEVENTS_PRIMARY = 0x110008;
 	private static final int ID_LOC_LABELS_PRIMARY = 0x11000C;
+	/** Clickable rows of the vanilla list; child N here is the row whose label is child N of the labels layer. */
+	private static final int ID_LIST_ROWS_PRIMARY = 0x11000D;
 	private static final int ID_SPRITES_PRIMARY = 0x11000F;
 	private static final int ID_LOC_LABELS_ALTERNATE = 0x110010;
+	private static final int ID_LIST_ROWS_ALTERNATE = 0x110011;
 	private static final int ID_SPRITES_ALTERNATE = 0x110012;
 
-	private static final int SCRIPT_TRIGGER_KEY = 1437;
+	/** The vanilla list row's teleport/scry option. */
+	private static final int LIST_ROW_OP = 1;
 	private static final int VARBIT_NEXUS_MODE = 6671;
 
 	/* Nexus Menu Map's layout and sprites */
@@ -256,7 +261,6 @@ public class ZoomOutNexusPlugin extends Plugin
 
 			w.setHidden(true);
 			w.setHasListener(true);
-			w.setOnOpListener((JavaScriptCallback) ev -> onIconOp(icon, ev.getOp()));
 			w.setOnMouseOverListener((JavaScriptCallback) ev -> setHovered(icon, true));
 			w.setOnMouseLeaveListener((JavaScriptCallback) ev -> setHovered(icon, false));
 		}
@@ -399,21 +403,32 @@ public class ZoomOutNexusPlugin extends Plugin
 		hoverWidget.setHidden(false);
 	}
 
-	private void onIconOp(Icon icon, int op)
+	/**
+	 * Points the menu entry of one of our icons at the matching row of the (hidden) vanilla teleport list,
+	 * so choosing it is an ordinary click on that row and the game performs the teleport itself.
+	 */
+	@Subscribe
+	public void onMenuEntryAdded(MenuEntryAdded e)
 	{
-		if (op != 1 || !icon.available())
+		MenuEntry entry = e.getMenuEntry();
+		if (entry.getType() != MenuAction.CC_OP || entry.getParam1() != ID_PORTAL_WINDOW || icons.isEmpty())
 		{
 			return;
 		}
 
-		int packedId = icon.def.isAlt() ? ID_KEYEVENTS_ALTERNATE : ID_KEYEVENTS_PRIMARY;
-		int index = icon.label.getIndex();
-
-		// Fires the vanilla list entry's key event, exactly like Nexus Menu Map does
-		clientThread.invokeLater(() -> client.createScriptEventBuilder(SCRIPT_TRIGGER_KEY, packedId, index)
-			.build()
-			.setCanSendPackets(true)
-			.run());
+		for (Icon icon : icons)
+		{
+			if (icon.widget.getIndex() == entry.getParam0())
+			{
+				if (icon.available())
+				{
+					entry.setParam0(icon.label.getIndex())
+						.setParam1(icon.def.isAlt() ? ID_LIST_ROWS_ALTERNATE : ID_LIST_ROWS_PRIMARY)
+						.setIdentifier(LIST_ROW_OP);
+				}
+				return;
+			}
+		}
 	}
 
 	private void updateVisibility(Widget window)
